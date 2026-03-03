@@ -7,7 +7,7 @@ Benchmark test for measuring ExecuTorch model execution performance on Apple Neu
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone -b ane-repro https://github.com/metascroy/executorch-testing.git
 cd executorch-testing
 git submodule update --init --recursive
 ```
