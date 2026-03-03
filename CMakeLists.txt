@@ -21,18 +21,16 @@ FetchContent_MakeAvailable(googletest)
 
 # Set executorch build options
 set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
-set(EXECUTORCH_BUILD_COREML ON CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-set(EXECUTORCH_BUILD_EXTENSION_MODULE ON CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-set(EXECUTORCH_BUILD_EXTENSION_DATA_LOADER ON CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-set(EXECUTORCH_BUILD_EXTENSION_FLAT_TENSOR ON CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-set(EXECUTORCH_BUILD_KERNELS_OPTIMIZED ON CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-
-# ET_EVENT_TRACER_ENABLED is defined by this
-set(EXECUTORCH_ENABLE_EVENT_TRACER OFF CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
-set(EXECUTORCH_BUILD_DEVTOOLS OFF CACHE BOOL "Enable CoreML backend for ExecutorTorch" FORCE)
+set(EXECUTORCH_BUILD_COREML ON CACHE BOOL "Enable CoreML backend" FORCE)
+set(EXECUTORCH_BUILD_EXTENSION_TENSOR ON CACHE BOOL "Enable extension tensor" FORCE)
+set(EXECUTORCH_BUILD_EXTENSION_MODULE ON CACHE BOOL "Enable extension module" FORCE)
+set(EXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP ON CACHE BOOL "Required by EXTENSION_MODULE" FORCE)
+set(EXECUTORCH_BUILD_EXTENSION_DATA_LOADER ON CACHE BOOL "Enable extension data loader" FORCE)
+set(EXECUTORCH_BUILD_EXTENSION_FLAT_TENSOR ON CACHE BOOL "Enable extension flat tensor" FORCE)
+set(EXECUTORCH_BUILD_KERNELS_OPTIMIZED ON CACHE BOOL "Enable optimized kernels" FORCE)
+set(EXECUTORCH_ENABLE_EVENT_TRACER OFF CACHE BOOL "Enable event tracer" FORCE)
+set(EXECUTORCH_BUILD_DEVTOOLS OFF CACHE BOOL "Build devtools" FORCE)
 add_compile_definitions("-Dprotobuf_BUILD_TESTS=OFF")
-
 
 add_subdirectory("third-party/executorch")
 
@@ -48,7 +46,6 @@ target_link_libraries(
     coremldelegate
     GTest::gtest_main
 )
-
 
 include(GoogleTest)
 gtest_discover_tests(test_model)

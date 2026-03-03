@@ -1,134 +1,115 @@
 #include <gtest/gtest.h>
 
-
 #include <executorch/extension/module/module.h>
 #include <executorch/extension/tensor/tensor.h>
 #include <executorch/runtime/core/exec_aten/util/scalar_type_util.h>
 
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
-#include <string>
 #include <thread>
 #include <vector>
-#include <cstdlib>
 
 using namespace ::executorch::runtime;
 using namespace ::executorch::extension;
 
+constexpr int kNumIterations = 300;
 
-const std::string kTestPTEPath = [] {
-    if (const char* env_p = std::getenv("ET_TESTING_MODEL_PATH")) {
-        return std::string(env_p);
+static int getDelayMs() {
+    if (const char* env = std::getenv("DELAY_MS")) {
+        return std::atoi(env);
     }
-    // fallback if env var not set
-    return std::string("model.pte");
-}();
+    return 0;
+}
 
-const int kNumThreads = [] {
-    if (const char* env_p = std::getenv("ET_TESTING_NUM_THREADS")) {
-        try {
-            return std::stoi(env_p);
-        } catch (...) {
-            // if conversion fails, fall back
+static int getExcludeN() {
+    if (const char* env = std::getenv("EXCLUDE_N")) {
+        return std::atoi(env);
+    }
+    return 0;
+}
+
+static std::string getModelPath() {
+    const char* env = std::getenv("MODEL_PATH");
+    if (!env || std::string(env).empty()) {
+        throw std::runtime_error("MODEL_PATH environment variable is required");
+    }
+    return std::string(env);
+}
+
+TEST(Benchmark, XLModelDummy) {
+    const std::string model_path = getModelPath();
+    const int delayMs = getDelayMs();
+    const int excludeN = getExcludeN();
+
+    std::cout << "\n=== Benchmark: XL Model Dummy ===" << std::endl;
+    std::cout << "Model path: " << model_path << std::endl;
+    std::cout << "Iterations: " << kNumIterations << std::endl;
+    std::cout << "Delay between iterations: " << delayMs << " ms" << std::endl;
+    std::cout << "Exclude first N from stats: " << excludeN << std::endl;
+
+    Module module(model_path);
+
+    auto input = rand({1, 1, 432, 640}, exec_aten::ScalarType::Float);
+
+    std::cout << "Running warmup..." << std::endl;
+    auto warmup_result = module.forward(input);
+    ASSERT_TRUE(warmup_result.ok()) << "Warmup forward() failed";
+
+    std::cout << "Running " << kNumIterations << " iterations..." << std::endl;
+
+    std::vector<double> iteration_times;
+    iteration_times.reserve(kNumIterations);
+
+    auto total_start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < kNumIterations; ++i) {
+        auto iter_start = std::chrono::high_resolution_clock::now();
+
+        auto result = module.forward(input);
+        ASSERT_TRUE(result.ok()) << "forward() failed on iteration " << i;
+
+        auto iter_end = std::chrono::high_resolution_clock::now();
+        double iter_ms = std::chrono::duration<double, std::milli>(iter_end - iter_start).count();
+        iteration_times.push_back(iter_ms);
+
+        if (delayMs > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
         }
     }
-    // fallback default
-    return 7;
-}();
 
-std::vector<TensorPtr> get_inputs(Module& module) {
-  const auto method_meta = module.method_meta("forward");
-  const auto num_inputs = method_meta->num_inputs();
-  std::cout << "num_inputs: " << num_inputs << std::endl;
+    auto total_end = std::chrono::high_resolution_clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(total_end - total_start).count();
 
-  // Num outputs
-  const auto num_outputs = method_meta->num_outputs();
-  std::cout << "num_outputs: " << num_outputs << std::endl;
+    int statsCount = kNumIterations - excludeN;
+    ASSERT_GT(statsCount, 0) << "EXCLUDE_N must be less than kNumIterations";
 
-  std::vector<TensorPtr> tensors;
-  tensors.reserve(num_inputs);
+    double sum = 0.0;
+    double min_time = iteration_times[excludeN];
+    double max_time = iteration_times[excludeN];
 
-  for (auto index = 0; index < num_inputs; ++index) {
-    const auto input_tag = method_meta->input_tag(index);
-
-    switch (*input_tag) {
-      case Tag::Tensor: {
-        const auto tensor_meta = method_meta->input_tensor_meta(index);
-        const auto sizes = tensor_meta->sizes();
-        tensors.emplace_back(
-            rand({sizes.begin(), sizes.end()}, tensor_meta->scalar_type()));
-      } break;
-      default:
-        throw std::runtime_error("Unsupported tag");
+    for (int i = excludeN; i < kNumIterations; ++i) {
+        double t = iteration_times[i];
+        sum += t;
+        min_time = std::min(min_time, t);
+        max_time = std::max(max_time, t);
     }
-  }
-  return tensors;
-}
 
-std::vector<TensorPtr> get_outputs(Module& module) {
-  const auto method_meta = module.method_meta("forward");
-  const auto num_outputs = method_meta->num_outputs();
+    double avg_time = sum / statsCount;
+    double execution_time_only = sum;
 
-  std::vector<TensorPtr> tensors;
-  tensors.reserve(num_outputs);
+    std::cout << "\n=== Results (excluding first " << excludeN << ") ===" << std::endl;
+    std::cout << "Iterations used for stats: " << statsCount << std::endl;
+    std::cout << "Total wall time: " << total_ms << " ms" << std::endl;
+    std::cout << "Total execution time (forward only): " << execution_time_only << " ms" << std::endl;
+    std::cout << "Average per iteration: " << avg_time << " ms" << std::endl;
+    std::cout << "Min iteration time: " << min_time << " ms" << std::endl;
+    std::cout << "Max iteration time: " << max_time << " ms" << std::endl;
 
-  for (auto index = 0; index < num_outputs; ++index) {
-    const auto output_tag = method_meta->output_tag(index);
-
-    switch (*output_tag) {
-      case Tag::Tensor: {
-        const auto tensor_meta = method_meta->output_tensor_meta(index);
-        const auto sizes = tensor_meta->sizes();
-        tensors.emplace_back(
-            zeros({sizes.begin(), sizes.end()}, tensor_meta->scalar_type()));
-      } break;
-      default:
-        throw std::runtime_error("Unsupported tag");
+    if (delayMs > 0) {
+        double delay_overhead = total_ms - execution_time_only;
+        std::cout << "Delay overhead: " << delay_overhead << " ms" << std::endl;
     }
-  }
-  return tensors;
-}
 
-
-
-void run_predict(int i, const std::string& model_path, std::atomic<size_t>& success_count) {
-  Module module(model_path);
-
-  auto inputs = get_inputs(module);
-  for (int i = 0; i < inputs.size(); i++) {
-    module.set_input(inputs[i], i);
-  }
-
-  auto outputs = get_outputs(module);
-  for (int i = 0; i < outputs.size(); i++) {
-    module.set_output(outputs[i], i);
-  }
-
-  // Perform an inference.
-  const auto result = module.forward();
-
-  if (result.ok()) {
-    // Retrieve the output data.
-    success_count++;
-  }
-}
-
-TEST(ModelTest, MultipleThreads) {
-  const int num_threads = 1;
-
-  ASSERT_NE(kTestPTEPath.size(), 0);
-  ASSERT_NE(num_threads, 0);
-
-  std::vector<std::thread> threads(num_threads);
-  std::atomic<size_t> success_count{0};
-  int i = 0;
-
-  for (int i = 0; i < num_threads; i++) {
-    threads[i] = std::thread([&, i]() {
-      run_predict(i, kTestPTEPath, success_count);
-    });
-  }
-  for (int i = 0; i < num_threads; i++) {
-    threads[i].join();
-  }
-  ASSERT_EQ(success_count, num_threads);
+    std::cout << "==============================\n" << std::endl;
 }
